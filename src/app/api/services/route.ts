@@ -1,6 +1,6 @@
 import { NextResponse, NextRequest } from 'next/server';
 import prisma from '@/app/lib/prisma';
-import { scheduleSchema } from '@/app/lib/validation';
+import { serviceSchema } from '@/app/lib/validation';
 import { getServerSession } from '@/app/lib/auth';
 import { z } from 'zod';
 
@@ -12,13 +12,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { dayOfWeek, startTime, endTime, isAvailable } = scheduleSchema.parse(body);
+    const { name, price, duration } = serviceSchema.parse(body);
 
-    const schedule = await prisma.schedule.create({
-      data: { dayOfWeek, startTime, endTime, isAvailable },
+    const service = await prisma.service.create({
+      data: { name, price, duration },
     });
 
-    return NextResponse.json(schedule);
+    return NextResponse.json(service);
   } catch (error) {
     return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
   }
@@ -26,10 +26,10 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    const schedules = await prisma.schedule.findMany();
-    return NextResponse.json(schedules);
+    const services = await prisma.service.findMany();
+    return NextResponse.json(services);
   } catch (error) {
-    return NextResponse.json({ error: 'Error fetching schedules' }, { status: 500 });
+    return NextResponse.json({ error: 'Error fetching services' }, { status: 500 });
   }
 }
 
@@ -41,14 +41,14 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { id, dayOfWeek, startTime, endTime, isAvailable } = scheduleSchema.extend({ id: z.number().int().positive() }).parse(body);
+    const { id, name, price, duration } = serviceSchema.extend({ id: z.number().int().positive() }).parse(body);
 
-    const schedule = await prisma.schedule.update({
+    const service = await prisma.service.update({
       where: { id },
-      data: { dayOfWeek, startTime, endTime, isAvailable },
+      data: { name, price, duration },
     });
 
-    return NextResponse.json(schedule);
+    return NextResponse.json(service);
   } catch (error) {
     return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
   }
@@ -67,9 +67,9 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Valid ID is required' }, { status: 400 });
     }
 
-    await prisma.schedule.delete({ where: { id } });
-    return NextResponse.json({ message: 'Schedule deleted' });
+    await prisma.service.delete({ where: { id } });
+    return NextResponse.json({ message: 'Service deleted' });
   } catch (error) {
-    return NextResponse.json({ error: 'Error deleting schedule' }, { status: 500 });
+    return NextResponse.json({ error: 'Error deleting service' }, { status: 500 });
   }
 }

@@ -1,22 +1,22 @@
 generator client {
-    provider    = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider    = "postgresql"
-    url         = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
-    id          Int         @id @default(autoincrement())
-    name        String
-    email       String      @unique
-    phone       String
-    password    String
-    role        Role        @default(CLIENT)
-    appointments    Appointment[]
-    createdAt   DateTime    @default(now())
-    updatedAt   DateTime    @updatedAt    
+  id          Int          @id @default(autoincrement())
+  name        String
+  email       String       @unique
+  phone       String
+  password    String
+  role        Role         @default(CLIENT)
+  appointments Appointment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 }
 
 model Appointment {
@@ -34,22 +34,25 @@ model Appointment {
 
 model Service {
   id        Int      @id @default(autoincrement())
-  dayOfWeek String
-  startTime String
-  endTime   String
-  isAvailable Boolean @default(true)
+  name      String
+  price     Float
+  duration  Int
+  stripeProductId String?
+  stripePriceId   String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt 
+  updatedAt DateTime @updatedAt
 
   Appointment Appointment[]
 }
 
-model SliderImage {
-  id        Int      @id @default(autoincrement())
-  url       String
-  altText   String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Schedule {
+  id          Int      @id @default(autoincrement())
+  dayOfWeek   String
+  startTime   String
+  endTime     String
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 enum Role {
