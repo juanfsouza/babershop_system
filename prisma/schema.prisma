@@ -1,0 +1,64 @@
+generator client {
+    provider    = "prisma-client-js"
+}
+
+datasource db {
+    provider    = "postgresql"
+    url         = env("DATABASE_URL")
+}
+
+model User {
+    id          Int         @id @default(autoincrement())
+    name        String
+    email       String      @unique
+    phone       String
+    password    String
+    role        Role        @default(CLIENT)
+    appointments    Appointment[]
+    createdAt   DateTime    @default(now())
+    updatedAt   DateTime    @updatedAt    
+}
+
+model Appointment {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id])
+  serviceId Int
+  service   Service   @relation(fields: [serviceId], references: [id])
+  date      DateTime
+  time      String
+  status    Status    @default(PENDING)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Service {
+  id        Int      @id @default(autoincrement())
+  dayOfWeek String
+  startTime String
+  endTime   String
+  isAvailable Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt 
+
+  Appointment Appointment[]
+}
+
+model SliderImage {
+  id        Int      @id @default(autoincrement())
+  url       String
+  altText   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+enum Role {
+  CLIENT
+  ADMIN
+}
+
+enum Status {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
