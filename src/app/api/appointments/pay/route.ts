@@ -1,56 +1,178 @@
 import { NextResponse, NextRequest } from 'next/server';
 import prisma from '@/app/lib/prisma';
+import { serviceSchema } from '@/app/lib/validation';
 import { getServerSession } from '@/app/lib/auth';
+import { z } from 'zod';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-10-28.acacia',
 });
 
 export async function POST(request: NextRequest) {
   try {
     const user = await getServerSession(request);
-    if (!user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!user || user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     const body = await request.json();
-    const { appointmentId } = body;
+    const { name, price, duration, image, description } = serviceSchema
+      .extend({
+        image: z.string().url('Invalid image URL').optional(),
+        description: z.string().optional(),
+      })
+      .parse(body);
 
-    const appointment = await prisma.appointment.findUnique({
-      where: { id: appointmentId },
-      include: { service: true },
-    });
-    if (!appointment) {
-      return NextResponse.json({ error: 'Appointment not found' }, { status: 404 });
-    }
-
-    if (!appointment.service.stripePriceId) {
-      return NextResponse.json({ error: 'Service does not have a Stripe price ID' }, { status: 400 });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      line_items: [
-        {
-          price: appointment.service.stripePriceId as string,
-          quantity: 1,
-        },
-      ],
-      mode: 'payment',
-      success_url: `${request.nextUrl.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${request.nextUrl.origin}/cancel`,
-      metadata: { appointmentId: appointment.id.toString() },
+    // Create Stripe Product
+    const stripeProduct = await stripe.products.create({
+      name,
+      images: image ? [image] : [],
+      description: description || undefined,
     });
 
-    await prisma.appointment.update({
-      where: { id: appointmentId },
-      data: { status: 'CONFIRMED' },
+    // Create Stripe Price
+    const stripePrice = await stripe.prices.create({
+      product: stripeProduct.id,
+      unit_amount: Math.round(price * 100), // Convert to cents
+      currency: 'brl', // Adjust currency as needed (e.g., 'usd')
     });
 
-    return NextResponse.json({ url: session.url });
+    // Create service in Prisma
+    const service = await prisma.service.create({
+      data: {
+        name,
+        price,
+        duration,
+        image,
+        description,
+        stripeProductId: stripeProduct.id,
+        stripePriceId: stripePrice.id,
+      },
+    });
+
+    return NextResponse.json(service);
   } catch (error) {
-    console.error('Error in POST /api/appointments/pay:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: 'Error creating payment session', details: errorMessage }, { status: 500 });
+    console.error('Error in POST /api/services:', error);
+    return NextResponse.json({ error: 'Invalid input', details: (error instanceof Error ? error.message : String(error)) }, { status: 400 });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const products = await stripe.products.list({
+      active: true,
+      limit: 100,
+    });
+
+    const services = await Promise.all(
+      products.data.map(async (product) => {
+        const prices = await stripe.prices.list({
+          product: product.id,
+          active: true,
+          limit: 1,
+        });
+
+        const price = prices.data[0];
+        const service = await prisma.service.findFirst({
+          where: { stripeProductId: product.id },
+        });
+
+        return {
+          id: service?.id || null,
+          name: product.name,
+          price: price?.unit_amount ? price.unit_amount / 100 : 0,
+          duration: service?.duration || 30,
+          image: product.images[0] || null,
+          description: product.description || null,
+          stripeProductId: product.id,
+          stripePriceId: price?.id || null,
+          createdAt: service?.createdAt || new Date().toISOString(),
+          updatedAt: service?.updatedAt || new Date().toISOString(),
+        };
+      })
+    );
+
+    return NextResponse.json(services);
+  } catch (error) {
+    console.error('Error in GET /api/services:', error);
+    return NextResponse.json({ error: 'Error fetching services', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const user = await getServerSession(request);
+    if (!user || user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const body = await request.json();
+    const { id, name, price, duration, image, description } = serviceSchema
+      .extend({
+        id: z.number().int().positive(),
+        image: z.string().url('Invalid image URL').optional(),
+        description: z.string().optional(),
+      })
+      .parse(body);
+
+    const existingService = await prisma.service.findUnique({ where: { id } });
+    if (!existingService) {
+      return NextResponse.json({ error: 'Service not found' }, { status: 404 });
+    }
+
+    let stripePriceId = existingService.stripePriceId;
+    if (existingService.price !== price || name !== existingService.name || image !== existingService.image || description !== existingService.description) {
+      if (existingService.stripeProductId) {
+        await stripe.products.update(existingService.stripeProductId, {
+          name,
+          images: image ? [image] : [],
+          description: description || undefined,
+        });
+        if (existingService.price !== price) {
+          const stripePrice = await stripe.prices.create({
+            product: existingService.stripeProductId,
+            unit_amount: Math.round(price * 100),
+            currency: 'brl',
+          });
+          stripePriceId = stripePrice.id;
+        }
+      }
+    }
+
+    const service = await prisma.service.update({
+      where: { id },
+      data: { name, price, duration, image, description, stripePriceId },
+    });
+
+    return NextResponse.json(service);
+  } catch (error) {
+    console.error('Error in PUT /api/services:', error);
+    return NextResponse.json({ error: 'Invalid input', details: error instanceof Error ? error.message : String(error) }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const user = await getServerSession(request);
+    if (!user || user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = parseInt(searchParams.get('id') || '0');
+    if (!id || isNaN(id)) {
+      return NextResponse.json({ error: 'Valid ID is required' }, { status: 400 });
+    }
+
+    const service = await prisma.service.findUnique({ where: { id } });
+    if (service?.stripeProductId) {
+      await stripe.products.update(service.stripeProductId, { active: false });
+    }
+
+    await prisma.service.delete({ where: { id } });
+    return NextResponse.json({ message: 'Service deleted' });
+  } catch (error) {
+    console.error('Error in DELETE /api/services:', error);
+    return NextResponse.json({ error: 'Error deleting service', details: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

@@ -3,7 +3,6 @@ import Stripe from 'stripe';
 import prisma from '@/app/lib/prisma';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-10-28.acacia',
 });
 
 export async function POST(request: NextRequest) {
